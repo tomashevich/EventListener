@@ -1,0 +1,18 @@
+{
+  "profiles": {
+    "WorkerService3": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true
+    },
+    "Docker": {
+      "commandName": "Docker",
+      "DockerfileRunArguments": "--net=devnet",
+      "environmentVariables": {
+        "ESDB_CONNECTION_STRING": "esdb://admin:changeit@esdb-node:2113?tls=false"
+      }
+    }
+  }
+}
