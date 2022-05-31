@@ -36,10 +36,14 @@ namespace WorkerService3
                 "storage:bin_startfetchcycle",
                 "storage:bin_ready",
                 "storage:bin_getnext",
+                "storage:bin_stopfetchcycle",
 
                 "stock:picktask_issued",
                 "stock:taskgroup_get",
                 "stock:taskgroup_issued",
+                "stock:picktask_get",
+                "stock:picktask_started",
+                "stock:picktask_completed",
 
                 "mfc:box_get",
                 "mfc:box_movingstarted",
@@ -84,7 +88,7 @@ namespace WorkerService3
         public void HandleEvent(string streamName, ResolvedEvent e, CancellationToken cancellationToken)
         {
             var bytesAsString = Encoding.UTF8.GetString(e.Event.Data.ToArray());
-            Console.WriteLine($"{streamName}  EventType = {e.Event.EventType}, event Data: {bytesAsString}");
+            Console.WriteLine($"{e.Event.Created} {streamName}  EventType = {e.Event.EventType}, event Data: {bytesAsString}");
 
         }
     }
