@@ -1,25 +1,35 @@
 using System.Text;
+using System.Text.Json;
 using EventStore.Client;
+using Polly;
+using Polly.Retry;
 
 namespace WorkerService3
 {
     public class Worker : BackgroundService
     {
         private readonly ILogger<Worker> _logger;
-        private readonly EventStoreClient _esClient;
+        private EventStoreClient _esClient;
 
         public Worker()
         {
-
-            Console.WriteLine($"Esdb client init started");
+        }
+        private void InitEsdbClient()
+        {
+            Console.WriteLine($"Esdb client init start");
             var esdbConnectionString = $"{Environment.GetEnvironmentVariable("ESDB_CONNECTION_STRING")}";
             _esClient = new EventStoreClient(EventStoreClientSettings.Create(esdbConnectionString));
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            await Init();
+            InitEsdbClient();
 
+            //wait in case esdb is not ready yet
+            var reconnectPolicy = GetPolicyWithRetryCount(3, action: ReconnectClient());
+            await reconnectPolicy.ExecuteAsync(() => AppendToStream());
+
+            await Init();
         }
 
 
@@ -64,7 +74,7 @@ namespace WorkerService3
             {
                 await SubscribeToStream(evnt, e => HandleEvent(evnt, e, CancellationToken.None)
                 ).ConfigureAwait(false);
-                
+
             }
             Console.WriteLine();
             Console.WriteLine($"subscribed...");
@@ -72,24 +82,64 @@ namespace WorkerService3
             Console.WriteLine();
         }
 
+        private async Task AppendToStream()
+        {
+            var evt = new StartEvent
+            {
+                ApplicationName = "EventListener",
+                StartedAt = DateTime.Now
+            };
+
+            var eventData = new EventData(
+                Uuid.NewUuid(),
+                "StartEvent",
+                JsonSerializer.SerializeToUtf8Bytes(evt)
+            );
+
+
+            await _esClient.AppendToStreamAsync(
+                        "Started",
+                        StreamState.Any,
+                        new[] { eventData },
+                        cancellationToken: CancellationToken.None);
+        }
 
         private async Task SubscribeToStream(string streamName, Action<ResolvedEvent> action)
         {
-            var sub = await _esClient.SubscribeToStreamAsync(
-                streamName,
-                FromStream.End,
-                async (subscription, evnt, cancellationToken) =>
-                {
-                    action(evnt);
-                }).ConfigureAwait(false);
+            await _esClient.SubscribeToStreamAsync(
+               streamName,
+               FromStream.End,
+               async (subscription, evnt, cancellationToken) =>
+               {
+                   action(evnt);
+               }).ConfigureAwait(false);
         }
 
 
         public void HandleEvent(string streamName, ResolvedEvent e, CancellationToken cancellationToken)
         {
             var bytesAsString = Encoding.UTF8.GetString(e.Event.Data.ToArray());
-            Console.WriteLine($"{e.Event.Created} {streamName}  EventType = {e.Event.EventType}, event Data: {bytesAsString}");
+            Console.WriteLine($"{e.Event.Created.ToString("MM/dd/yy H:mm:ss:ffff")} {streamName}  EventType = {e.Event.EventType}, event Data: {bytesAsString}");
+            Console.WriteLine();
 
+        }
+
+        private AsyncRetryPolicy GetPolicyWithRetryCount(int numberOfRetries, Action<Exception, TimeSpan> action)
+        {
+            return Policy.Handle<Exception>()
+                .WaitAndRetryAsync(numberOfRetries, retryAttempt =>
+                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt) / 2),
+                    onRetry: action);
+        }
+
+        private Action<Exception, TimeSpan> ReconnectClient()
+        {
+            return (response, retryCount) =>
+            {
+                Console.WriteLine($"Error, trying to reconnect...");
+
+                Task.Delay(2000).Wait();
+            };
         }
     }
 }
